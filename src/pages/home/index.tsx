@@ -1,28 +1,20 @@
-import { EventLoaderDataType, EventFlow } from "@customTypes/event";
+import { EventLoaderDataType } from "@customTypes/event";
 import { QKeys } from "@constants/query";
 import { isLoadingOrRefetchQuery } from "@utils/query";
 import NumberInput from '@components/form/NumberInput';
 import Button from '@components/form/Button';
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import React, { useEffect, useState } from 'react';
-
-import { EventFlowCalculator } from '@utils/EventFlowCalculator';
-import { EventProcessor } from '@utils/EventProcessor';
+import React, { useState } from 'react';
 
 import DataRepo from "@api/datasource";
-import EventBalance from '@components/EventBalance';
+import DirectFlowView from './DirectFlowView';
 
-const INITIAL_FLOWS = {
-    initialMoney: 0,
-    flows: []
-}
+
 
 const Home = () => {
-
     const { state } = useParams<{ state: string }>();
     const [initialMoney, setInitialMoney] = useState(0);
-    const [eventsFlow, setEventsFlow] = useState<EventFlow>(INITIAL_FLOWS);
 
     const eventQuery = useQuery<
         EventLoaderDataType,
@@ -35,13 +27,6 @@ const Home = () => {
             return DataRepo.loadEvents(queryKey[0]);
         },
     });
-
-    useEffect(() => {
-        if (eventQuery.data?.events) {
-            const processedEventsFlow = EventProcessor.processEvents(eventQuery.data.events, eventsFlow.initialMoney);
-            setEventsFlow(processedEventsFlow);
-        }
-    }, [eventQuery.data]);
 
     const { data } = eventQuery;
     const isLoading = isLoadingOrRefetchQuery(eventQuery);
@@ -65,15 +50,17 @@ const Home = () => {
                                         className="cd-w-full sm:cd-w-auto"
                                         label="Initial Money"
                                         value={initialMoney}
-                                        onChange={setInitialMoney}
+                                        onChange={(value) => {
+                                            setInitialMoney(value);
+                                            // Forzar recarga de datos cuando cambia el dinero inicial
+                                            setTimeout(() => eventQuery.refetch(), 100);
+                                        }}
                                     />
                                     <Button
-                                        caption="Calcular"
+                                        caption="Recalcular"
                                         onClick={() => {
-                                            setEventsFlow(prev => ({ ...prev, initialMoney: initialMoney }));
-                                            const updatedEventsFlow = EventFlowCalculator.calculateTotals(eventsFlow, initialMoney);
-                                            setEventsFlow(updatedEventsFlow)
-                                            //alert("calculado")
+                                            // Forzar recarga de datos
+                                            eventQuery.refetch();
                                         }}
                                     />
                                 </div>
@@ -88,12 +75,13 @@ const Home = () => {
                             {!isLoading && data?.events && data.events.length > 0 && (
                                 <div className='cd-flex cd-flex-col cd-gap-4 cd-items-center cd-text-center dark:cd-text-white cd-pt-8'>
                                     <p className='cd-mb-2 cd-pt-4 cd-self-start cd-font-sans cd-font-medium cd-text-xl cd-text-center'>Your Events</p>
-                                    <div className='cd-grid cd-grid-cols-1 md:cd-grid-cols-2 lg:cd-grid-cols-4 cd-gap-4'>
-                                        {eventsFlow.flows.map(flow => {
-                                            return (
-                                                <EventBalance key={flow.id} data={flow} />
-                                            );
-                                        })}
+                                    
+
+                                    
+                                    <div className="cd-w-full">
+
+                                        
+                                        <DirectFlowView initialMoney={initialMoney} />
                                     </div>
                                 </div>
                             )}
@@ -103,9 +91,10 @@ const Home = () => {
                                 <h1 className="cd-text-3xl cd-font-bold cd-text-center dark:cd-text-gray-300 ">
                                     Empty virtual wallet
                                 </h1>
-                            
                             </div>
                         )}
+
+
 
 
                     </div>

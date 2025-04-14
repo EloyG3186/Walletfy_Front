@@ -11,10 +11,22 @@ type EventBalanceProps = {
 }
 
 const EventBalance = (props: EventBalanceProps) => {
+    console.log('EventBalance - props recibidos:', props);
+    
     const { data } = props
+    console.log('EventBalance - data:', data);
+    
     const { id, events, income, expense, monthly, global } = data;
+    console.log('EventBalance - id:', id, 'events:', events?.length, 'income:', income, 'expense:', expense);
 
+    // Verificar que el id tenga el formato correcto (YYYY-MM)
+    if (!id || id.length < 7) {
+        console.error('EventBalance - Error: id no tiene el formato esperado:', id);
+        return null;
+    }
+    
     const month = parseInt(id.substring(5, 7), 10);
+    console.log('EventBalance - mes extraído:', month);
 
     return (
 
