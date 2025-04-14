@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import moment from 'moment';
+
 import { QKeys } from '@constants/query';
 import DataRepo from '@api/datasource';
-import moment from 'moment';
-import { EventLoaderDataType } from '@customTypes/event';
-import { useNavigate } from 'react-router-dom';
+import { EventLoaderDataType, EventType, FlowType } from '@customTypes/event';
 
 interface DirectFlowViewProps {
   initialMoney?: number;
@@ -12,12 +13,14 @@ interface DirectFlowViewProps {
 
 const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
   const navigate = useNavigate();
-  const [groupedEvents, setGroupedEvents] = useState<Record<string, any>>({});
+  const queryClient = useQueryClient();
+  const [groupedEvents, setGroupedEvents] = useState<Record<string, FlowType>>({});
   const [internalInitialMoney, setInternalInitialMoney] = useState(initialMoney);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [selectedEvent, setSelectedEvent] = useState<EventType | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeleteConfirmMode, setIsDeleteConfirmMode] = useState(false);
   
   // Función para navegar al formulario de edición
   const handleEditEvent = (e: React.MouseEvent, eventId: string) => {
@@ -26,7 +29,7 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
   };
   
   // Función para abrir la modal con los detalles del evento
-  const openEventDetails = (event: any) => {
+  const openEventDetails = (event: EventType) => {
     setSelectedEvent(event);
     setIsModalOpen(true);
   };
@@ -36,11 +39,51 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
     setIsModalOpen(false);
     setSelectedEvent(null);
   };
+
+  // Función para activar el modo de confirmación de eliminación dentro del modal existente
+  const activateDeleteConfirmMode = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDeleteConfirmMode(true);
+  };
+
+  // Función para cancelar el modo de confirmación de eliminación
+  const cancelDeleteConfirmMode = () => {
+    setIsDeleteConfirmMode(false);
+  };
   
   // Actualizar el estado interno cuando cambia la prop
   useEffect(() => {
     setInternalInitialMoney(initialMoney);
   }, [initialMoney]);
+
+  // Mutación para eliminar un evento
+  const deleteEventMutation = useMutation({
+    mutationFn: (eventId: string) => {
+      return DataRepo.deleteEvent(eventId);
+    },
+    onSuccess: () => {
+      // Actualizar la caché de los eventos después de eliminar uno
+      queryClient.invalidateQueries({ queryKey: [QKeys.GET_EVENTS] });
+      closeModal();
+      setIsDeleteConfirmMode(false);
+    },
+    onError: (error: Error) => {
+      console.error('Error al eliminar el evento:', error);
+      setError(`Error al eliminar el evento: ${error.message}`);
+      setIsDeleteConfirmMode(false);
+    }
+  });
+
+  // Función para eliminar el evento
+  const handleDeleteEvent = () => {
+    if (selectedEvent && (selectedEvent._id || selectedEvent.id)) {
+      deleteEventMutation.mutate(selectedEvent._id || selectedEvent.id);
+    } else {
+      console.error('No se pudo eliminar el evento: ID no encontrado');
+      setError('No se pudo eliminar el evento: ID no encontrado');
+      setIsDeleteConfirmMode(false);
+    }
+  };
 
   // Usar useQuery para obtener los eventos
   const { data: eventData, isLoading: queryLoading, error: queryError, refetch } = useQuery<
@@ -87,11 +130,11 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
    * @param initialMoney Dinero inicial para calcular el balance global
    * @returns Objeto con los eventos agrupados por mes
    */
-  const processEvents = (events: any[], initialMoney: number) => {
+  const processEvents = (events: EventType[], initialMoney: number): Record<string, FlowType> => {
     // Agrupar eventos por mes
-    const grouped: Record<string, any> = {};
+    const grouped: Record<string, FlowType> = {};
     
-    events.forEach((event: any) => {
+    events.forEach((event) => {
       if (!event) return;
       
       // Asegurarse de que date sea un número
@@ -118,7 +161,9 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
           month: moment(monthYear, 'YYYY-MM').format('MMMM YYYY'),
           events: [],
           income: 0,
-          expense: 0
+          expense: 0,
+          monthly: 0,
+          global: 0
         };
       }
       
@@ -136,12 +181,12 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
       }
     });
     
-    // Ordenar los eventos por fecha (ascendente) dentro de cada mes
+    // Ordenar los eventos por fecha (descendente) dentro de cada mes
     Object.keys(grouped).forEach(month => {
-      grouped[month].events.sort((a: any, b: any) => {
+      grouped[month].events.sort((a, b) => {
         const timestampA = a.timestamp || 0;
         const timestampB = b.timestamp || 0;
-        return timestampA - timestampB; // Orden ascendente por timestamp
+        return timestampB - timestampA; // Orden descendente por timestamp (más reciente primero)
       });
     });
     
@@ -175,15 +220,39 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
     );
   }
 
+  // Calcular el saldo global actual sumando el dinero inicial y todos los balances mensuales
+  const calcularSaldoGlobal = () => {
+    if (Object.keys(groupedEvents).length === 0) return internalInitialMoney;
+    
+    // Obtener el último mes (el más reciente) para obtener el balance global acumulado
+    const meses = Object.keys(groupedEvents).sort();
+    if (meses.length > 0) {
+      const ultimoMes = meses[meses.length - 1];
+      return groupedEvents[ultimoMes].global;
+    }
+    
+    return internalInitialMoney;
+  };
+  
+  const saldoGlobal = calcularSaldoGlobal();
+  
   return (
     <div className="cd-w-full">
       <div className="cd-mb-6 cd-bg-gray-100 dark:cd-bg-gray-800 cd-p-4 cd-rounded-lg">
-        <div>
-          <p className="cd-font-bold">Información:</p>
-          <p>Número de meses: {Object.keys(groupedEvents).length}</p>
-          <p>Dinero inicial: ${internalInitialMoney.toFixed(2)}</p>
-          <p className="cd-text-sm cd-text-gray-500">(Valor configurado en la parte superior)</p>
-          {/*<p>Meses encontrados: {Object.keys(groupedEvents).join(', ')}</p>*/}
+        <div className="cd-grid cd-grid-cols-1 md:cd-grid-cols-2 cd-gap-4">
+          <div>
+            <p className="cd-font-bold cd-text-lg cd-mb-2">Información:</p>
+            <p>Número de meses: {Object.keys(groupedEvents).length}</p>
+            <p>Dinero inicial: ${internalInitialMoney.toFixed(2)}</p>
+            <p className="cd-text-sm cd-text-gray-500">(Valor configurado en la parte superior)</p>
+            {/*<p>Meses encontrados: {Object.keys(groupedEvents).join(', ')}</p>*/}
+          </div>
+          <div className="cd-flex cd-flex-col cd-justify-center cd-items-center cd-border-l cd-border-gray-300 dark:cd-border-gray-700 md:cd-pl-4">
+            <p className="cd-text-lg cd-font-semibold cd-mb-2">Saldo global a la fecha:</p>
+            <p className={`cd-text-2xl cd-font-bold ${saldoGlobal >= 0 ? 'cd-text-green-600 dark:cd-text-green-400' : 'cd-text-red-600 dark:cd-text-red-400'}`}>
+              ${saldoGlobal.toFixed(2)}
+            </p>
+          </div>
         </div>
       </div>
       
@@ -240,15 +309,30 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
                           <div className="cd-flex cd-justify-between cd-items-center">
                             <div className="cd-flex cd-items-center cd-gap-2">
                               <p className="cd-font-medium">{event.name}</p>
-                              <button 
-                                onClick={(e) => handleEditEvent(e, event._id || event.id)}
-                                className="cd-text-gray-500 hover:cd-text-blue-500 cd-transition-colors cd-duration-200"
-                                title="Editar evento"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="cd-h-4 cd-w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                </svg>
-                              </button>
+                              <div className="cd-flex cd-items-center cd-gap-2">
+                                <button 
+                                  onClick={(e) => handleEditEvent(e, event._id || event.id)}
+                                  className="cd-text-gray-500 hover:cd-text-blue-500 cd-transition-colors cd-duration-200"
+                                  title="Editar evento"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="cd-h-4 cd-w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                  </svg>
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEventDetails(event);
+                                    setTimeout(() => setIsDeleteConfirmMode(true), 100);
+                                  }}
+                                  className="cd-text-gray-500 hover:cd-text-red-500 cd-transition-colors cd-duration-200"
+                                  title="Eliminar evento"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="cd-h-4 cd-w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
                             </div>
                             <p className={`${event.type === 'income' ? 'cd-text-green-600 dark:cd-text-green-400' : 'cd-text-red-600 dark:cd-text-red-400'}`}>
                               ${typeof event.amount === 'number' ? event.amount.toFixed(2) : '0.00'}
@@ -285,10 +369,11 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
 
       {/* Modal para visualizar detalles del evento */}
       {isModalOpen && selectedEvent && (
-        <div className="cd-fixed cd-inset-0 cd-bg-black cd-bg-opacity-50 cd-flex cd-items-center cd-justify-center cd-z-50">
+        <div className="cd-fixed cd-inset-0 cd-bg-black dark:cd-bg-opacity-80 cd-bg-opacity-50 cd-flex cd-items-center cd-justify-center cd-z-50">
+
           <div className="cd-bg-white dark:cd-bg-gray-800 cd-rounded-lg cd-p-6 cd-max-w-2xl cd-w-full cd-max-h-[90vh] cd-overflow-y-auto">
             <div className="cd-flex cd-justify-between cd-items-start cd-mb-4">
-              <h2 className="cd-text-xl cd-font-bold">{selectedEvent.name}</h2>
+              <h2 className="cd-text-xl cd-font-bold cd-text-gray-900 dark:cd-text-white">{selectedEvent.name}</h2>
               <button 
                 onClick={closeModal}
                 className="cd-text-gray-500 hover:cd-text-gray-700 dark:hover:cd-text-gray-300"
@@ -303,12 +388,12 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
               <div>
                 <div className="cd-mb-4">
                   <p className="cd-text-sm cd-text-gray-500 dark:cd-text-gray-400">Descripción</p>
-                  <p className="cd-text-base">{selectedEvent.description || 'Sin descripción'}</p>
+                  <p className="cd-text-base cd-text-gray-800 dark:cd-text-gray-200">{selectedEvent.description || 'Sin descripción'}</p>
                 </div>
                 
                 <div className="cd-mb-4">
                   <p className="cd-text-sm cd-text-gray-500 dark:cd-text-gray-400">Fecha</p>
-                  <p className="cd-text-base">
+                  <p className="cd-text-base cd-text-gray-800 dark:cd-text-gray-200">
                     {new Date(typeof selectedEvent.date === 'number' ? selectedEvent.date * 1000 : Date.now()).toLocaleDateString()}
                   </p>
                 </div>
@@ -322,7 +407,7 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
                 
                 <div className="cd-mb-4">
                   <p className="cd-text-sm cd-text-gray-500 dark:cd-text-gray-400">Tipo</p>
-                  <p className="cd-text-base cd-capitalize">{selectedEvent.type === 'income' ? 'Ingreso' : 'Gasto'}</p>
+                  <p className="cd-text-base cd-capitalize cd-text-gray-800 dark:cd-text-gray-200">{selectedEvent.type === 'income' ? 'Ingreso' : 'Gasto'}</p>
                 </div>
               </div>
               
@@ -334,40 +419,81 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
                       <img 
                         src={selectedEvent.attachment} 
                         alt="Adjunto" 
-                        className="cd-w-full cd-h-auto cd-max-h-[400px] cd-object-contain"
+                        className="cd-w-full cd-h-auto cd-max-h-[400px] cd-object-contain cd-bg-white dark:cd-bg-gray-900"
                       />
                     </div>
                   </div>
                 )}
                 
                 {!selectedEvent.attachment && (
-                  <div className="cd-flex cd-items-center cd-justify-center cd-h-full cd-border cd-border-gray-200 dark:cd-border-gray-700 cd-rounded-lg cd-p-6">
+                  <div className="cd-flex cd-items-center cd-justify-center cd-h-full cd-border cd-border-gray-200 dark:cd-border-gray-700 cd-rounded-lg cd-p-6 cd-bg-gray-50 dark:cd-bg-gray-900">
                     <p className="cd-text-gray-500 dark:cd-text-gray-400">Sin imagen adjunta</p>
                   </div>
                 )}
               </div>
             </div>
             
-            <div className="cd-mt-6 cd-flex cd-justify-end cd-gap-4">
-              <button
-                onClick={closeModal}
-                className="cd-bg-gray-200 dark:cd-bg-gray-700 cd-text-gray-800 dark:cd-text-gray-200 cd-px-4 cd-py-2 cd-rounded-md hover:cd-bg-gray-300 dark:hover:cd-bg-gray-600"
-              >
-                Cerrar
-              </button>
-              <button
-                onClick={(e) => {
-                  closeModal();
-                  handleEditEvent(e, selectedEvent._id || selectedEvent.id);
-                }}
-                className="cd-bg-blue-500 cd-text-white cd-px-4 cd-py-2 cd-rounded-md hover:cd-bg-blue-600"
-              >
-                Editar
-              </button>
-            </div>
+            {!isDeleteConfirmMode ? (
+              <div className="cd-mt-6 cd-flex cd-justify-end cd-gap-4">
+                <button
+                  onClick={activateDeleteConfirmMode}
+                  className="cd-bg-red-500 cd-text-white cd-px-4 cd-py-2 cd-rounded-md hover:cd-bg-red-600 cd-transition-colors"
+                >
+                  Eliminar
+                </button>
+                <button
+                  onClick={closeModal}
+                  className="cd-bg-gray-200 dark:cd-bg-gray-700 cd-text-gray-800 dark:cd-text-gray-200 cd-px-4 cd-py-2 cd-rounded-md hover:cd-bg-gray-300 dark:hover:cd-bg-gray-600 cd-transition-colors"
+                >
+                  Cerrar
+                </button>
+                <button
+                  onClick={(e) => {
+                    closeModal();
+                    handleEditEvent(e, selectedEvent._id || selectedEvent.id);
+                  }}
+                  className="cd-bg-blue-500 cd-text-white cd-px-4 cd-py-2 cd-rounded-md hover:cd-bg-blue-600 cd-transition-colors"
+                >
+                  Editar
+                </button>
+              </div>
+            ) : (
+              <div className="cd-mt-6">
+                <div className="cd-bg-red-100 dark:cd-bg-red-900/30 cd-p-4 cd-rounded-lg cd-mb-4 cd-border cd-border-red-200 dark:cd-border-red-800">
+                  <div className="cd-flex cd-items-center cd-mb-2">
+                    <div className="cd-bg-red-200 dark:cd-bg-red-800 cd-p-2 cd-rounded-full cd-mr-3">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="cd-h-5 cd-w-5 cd-text-red-600 dark:cd-text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </div>
+                    <h3 className="cd-text-lg cd-font-medium cd-text-red-700 dark:cd-text-red-400">Confirmar eliminación</h3>
+                  </div>
+                  <p className="cd-text-red-700 dark:cd-text-red-300 cd-mb-2">
+                    ¿Estás seguro que deseas eliminar el evento <span className="cd-font-semibold">"{selectedEvent.name}"</span>?
+                  </p>
+                  <p className="cd-text-sm cd-text-red-600 dark:cd-text-red-300">Esta acción no se puede deshacer.</p>
+                </div>
+                <div className="cd-flex cd-justify-end cd-gap-3">
+                  <button
+                    onClick={cancelDeleteConfirmMode}
+                    className="cd-bg-gray-200 dark:cd-bg-gray-700 cd-text-gray-800 dark:cd-text-gray-200 cd-px-4 cd-py-2 cd-rounded-md hover:cd-bg-gray-300 dark:hover:cd-bg-gray-600 cd-transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleDeleteEvent}
+                    className="cd-bg-red-500 cd-text-white cd-px-4 cd-py-2 cd-rounded-md hover:cd-bg-red-600 cd-transition-colors"
+                  >
+                    Confirmar eliminación
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* No necesitamos un modal separado para la confirmación, ya usamos el modal existente */}
     </div>
   );
 };
