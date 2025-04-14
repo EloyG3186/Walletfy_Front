@@ -179,8 +179,8 @@ const DirectFlowView = ({ initialMoney = 0 }: DirectFlowViewProps) => {
     <div className="cd-w-full">
       <div className="cd-mb-6 cd-bg-gray-100 dark:cd-bg-gray-800 cd-p-4 cd-rounded-lg">
         <div>
-          <p className="cd-font-bold">Información:</p>
-          <p>Número de meses: {Object.keys(groupedEvents).length}</p>
+          <p className="cd-font-bold cd-text-lg">Información:</p>
+          <p className="cd-text-md">Número de meses: {Object.keys(groupedEvents).length}</p>
           <p>Dinero inicial: ${internalInitialMoney.toFixed(2)}</p>
           <p className="cd-text-sm cd-text-gray-500">(Valor configurado en la parte superior)</p>
           {/*<p>Meses encontrados: {Object.keys(groupedEvents).join(', ')}</p>*/}
