@@ -16,12 +16,24 @@ class ApiDS extends DataDS {
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
     try {
       const url = `${this.baseUrl}${endpoint}`;
+      
+      // Obtener el token de autenticación del localStorage
+      const token = localStorage.getItem('token');
+      
+      // Preparar los headers con el token de autenticación si existe
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Accept': 'application/json; charset=utf-8',
+        ...(options.headers as Record<string, string> || {})
+      };
+      
+      // Agregar el token de autenticación si existe
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(url, {
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Accept': 'application/json; charset=utf-8',
-          ...options.headers
-        },
+        headers,
         ...options
       });
 
@@ -43,52 +55,59 @@ class ApiDS extends DataDS {
    */
   async loadEvents(type?: string) {
     try {
-      const queryParams = type ? `?type=${encodeURIComponent(type)}` : '';
+      // Solo incluir el parámetro de tipo si es 'income' o 'expense'
+      const queryParams = (type === 'income' || type === 'expense') ? 
+        `?type=${encodeURIComponent(type)}` : '';
+      
+      // Verificar si hay token de autenticación
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.warn('ApiDS - No hay token de autenticación, no se pueden cargar eventos');
+        return { events: [] };
+      }
+      
+      console.log('ApiDS - Obteniendo eventos con token:', token.substring(0, 15) + '...');
+      
       const data = await this.fetchApi(`/events${queryParams}`);
       
       console.log('ApiDS - Datos recibidos de la API:', data);
       
-      // Si no hay eventos, usar datos de prueba
-      if (!data.events || !Array.isArray(data.events) || data.events.length === 0) {
-        console.warn('ApiDS - No hay eventos en la API, usando datos de prueba');
-        
-        // Crear datos de prueba
-        const mockEvents = this.generateMockEvents();
-        data.events = mockEvents;
-        console.log('ApiDS - Datos de prueba generados:', mockEvents.length);
+      // Asegurarse de que events sea un array
+      if (!data.events || !Array.isArray(data.events)) {
+        console.warn('ApiDS - No hay eventos en la API o formato incorrecto');
+        return { events: [] };
       }
       
+      console.log('ApiDS - Eventos del usuario:', data.events.length);
+      
       // Transformar los eventos para que coincidan con el tipo EventType
-      const transformedEvents = data.events.map((event: Record<string, any>) => {
+      const transformedEvents = data.events.map((event: any) => {
         // Verificar que el evento tenga todos los campos necesarios
         if (!event || typeof event !== 'object') {
           console.error('ApiDS - Error: evento inválido:', event);
           return null;
         }
         
-        // Si el evento es una cadena JSON, intentar parsearlo
-        let eventObj = event;
-        if (typeof event === 'string') {
-          try {
-            eventObj = JSON.parse(event);
-          } catch (error) {
-            console.error('ApiDS - Error al parsear evento:', error);
-            return null;
-          }
-        }
+        // Registrar cada evento para depuración
+        console.log('ApiDS - Procesando evento:', {
+          id: event._id,
+          name: event.name,
+          type: event.type,
+          amount: event.amount
+        });
         
         return {
-          id: eventObj._id || '',
-          name: eventObj.name || '',
-          description: eventObj.description || '',
-          date: typeof eventObj.date === 'number' ? eventObj.date : 0,
-          amount: typeof eventObj.amount === 'number' ? eventObj.amount : 0,
-          type: eventObj.type === 'income' || eventObj.type === 'expense' ? eventObj.type : 'expense',
-          attachment: eventObj.attachment || ''
+          id: event._id || '',
+          name: event.name || '',
+          description: event.description || '',
+          date: typeof event.date === 'number' ? event.date : 0,
+          amount: typeof event.amount === 'number' ? event.amount : 0,
+          type: event.type === 'income' || event.type === 'expense' ? event.type : 'expense',
+          attachment: event.attachment || ''
         };
       }).filter(event => event !== null); // Filtrar eventos nulos
       
-      console.log('ApiDS - Eventos transformados:', transformedEvents);
+      console.log('ApiDS - Eventos transformados:', transformedEvents.length);
       return { events: transformedEvents };
     } catch (error) {
       console.error('ApiDS - Error al cargar eventos:', error);

@@ -3,9 +3,10 @@ import { QKeys } from "@constants/query";
 import { isLoadingOrRefetchQuery } from "@utils/query";
 import NumberInput from '@components/form/NumberInput';
 import Button from '@components/form/Button';
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from "../../context/AuthContext";
 
 import DataRepo from "@api/datasource";
 import DirectFlowView from './DirectFlowView';
@@ -14,7 +15,16 @@ import DirectFlowView from './DirectFlowView';
 
 const Home = () => {
     const { state } = useParams<{ state: string }>();
+    const { state: authState } = useAuth();
+    const navigate = useNavigate();
     const [initialMoney, setInitialMoney] = useState(0);
+    
+    // Usar el dinero inicial del usuario si está autenticado
+    useEffect(() => {
+        if (authState.user && authState.user.initialMoney) {
+            setInitialMoney(authState.user.initialMoney);
+        }
+    }, [authState.user]);
 
     const eventQuery = useQuery<
         EventLoaderDataType,
@@ -24,8 +34,19 @@ const Home = () => {
     >({
         queryKey: [QKeys.GET_EVENTS, state],
         queryFn: ({ queryKey }) => {
-            return DataRepo.loadEvents(queryKey[0]);
+            // Si el usuario no está autenticado, redirigir a la página de inicio de sesión
+            if (!authState.isAuthenticated && !authState.loading) {
+                navigate('/login');
+                return { events: [] };
+            }
+            
+            // Obtener el tipo de filtro si es válido (income o expense)
+            const filterType = state === 'income' || state === 'expense' ? state : undefined;
+            console.log('Filtrando eventos por tipo:', filterType || 'todos');
+            
+            return DataRepo.loadEvents(filterType);
         },
+        enabled: !authState.loading, // Solo ejecutar la consulta cuando la autenticación no esté cargando
     });
 
     const { data } = eventQuery;
@@ -74,7 +95,9 @@ const Home = () => {
 
                             {!isLoading && data?.events && data.events.length > 0 && (
                                 <div className='cd-flex cd-flex-col cd-gap-4 cd-items-center cd-text-center dark:cd-text-white cd-pt-8'>
-                                    <p className='cd-mb-2 cd-pt-4 cd-self-start cd-font-sans cd-font-medium cd-text-xl cd-text-center'>Your Events</p>
+                                    <p className='cd-mb-2 cd-pt-4 cd-self-start cd-font-sans cd-font-medium cd-text-xl cd-text-center'>
+                                        {authState.user ? `Eventos de ${authState.user.firstName}` : 'Tus Eventos'}
+                                    </p>
                                     
 
                                     
@@ -89,8 +112,11 @@ const Home = () => {
                         {!isLoading && (!data?.events || data.events.length === 0) && (
                             <div className='cd-flex cd-flex-col cd-items-center cd-justify-center cd-h-full cd-pt-56 cd-pb-80'>
                                 <h1 className="cd-text-3xl cd-font-bold cd-text-center dark:cd-text-gray-300 ">
-                                    Empty virtual wallet
+                                    {authState.user ? `¡Hola ${authState.user.firstName}! Tu billetera virtual está vacía` : 'Billetera virtual vacía'}
                                 </h1>
+                                <p className="cd-mt-4 cd-text-lg cd-text-center dark:cd-text-gray-400">
+                                    Comienza a registrar tus ingresos y gastos para llevar un mejor control de tus finanzas
+                                </p>
                             </div>
                         )}
 

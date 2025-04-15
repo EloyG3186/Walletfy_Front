@@ -9,6 +9,12 @@ import Home from '@pages/home/index.tsx';
 import Layout from '@components/Layout.tsx';
 import EventForm from '@pages/events/form.tsx';
 import MyContext, { INITIAL_STATE, MyContextType } from '@context/index';
+import { AuthProvider } from './context/AuthContext';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Profile from './pages/Profile';
+import AuthCallback from './pages/AuthCallback';
+import ProtectedRoute from './components/ProtectedRoute';
 
 
 const queryClient = new QueryClient({
@@ -33,6 +39,31 @@ const router = createBrowserRouter([
       {
         path: 'events/form/:id?',
         element: <EventForm />,
+      },
+      {
+        path: 'login',
+        element: <Login />,
+      },
+      {
+        path: 'register',
+        element: <Register />,
+      },
+      {
+        path: 'auth/success',
+        element: <AuthCallback />,
+      },
+      {
+        path: 'auth/error',
+        element: <AuthCallback />,
+      },
+      {
+        element: <ProtectedRoute />,
+        children: [
+          {
+            path: 'profile',
+            element: <Profile />,
+          },
+        ],
       },
     ],
   }
@@ -59,8 +90,11 @@ function App() {
           setSchema(state.schema === 'light' ? 'dark' : 'light'),
       }}
     >
-      {/* Añadir el RouterProvider con el router */}
-      <RouterProvider router={router} />
+      {/* Añadir el AuthProvider para la autenticación */}
+      <AuthProvider>
+        {/* Añadir el RouterProvider con el router */}
+        <RouterProvider router={router} />
+      </AuthProvider>
     </MyContext.Provider>
   );
 
