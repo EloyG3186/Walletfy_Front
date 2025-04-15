@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { FaUser, FaSignOutAlt, FaSignInAlt, FaUserPlus } from 'react-icons/fa';
+import { FaUser, FaSignOutAlt, FaSignInAlt, FaUserPlus, FaChartBar } from 'react-icons/fa';
 
 interface NavbarProps {
   toggleSchema: () => void;
@@ -31,6 +31,11 @@ const Navbar: React.FC<NavbarProps> = ({ toggleSchema, schema }) => {
                 <Link to="/" className="cd-text-white hover:cd-bg-indigo-500 cd-px-3 cd-py-2 cd-rounded-md cd-text-sm cd-font-medium">
                   Inicio
                 </Link>
+                {state.isAuthenticated && (
+                  <Link to="/stats" className="cd-text-white hover:cd-bg-indigo-500 cd-px-3 cd-py-2 cd-rounded-md cd-text-sm cd-font-medium">
+                    Estadísticas
+                  </Link>
+                )}
               </div>
             </div>
           </div>
@@ -68,6 +73,13 @@ const Navbar: React.FC<NavbarProps> = ({ toggleSchema, schema }) => {
                         onClick={() => setIsMenuOpen(false)}
                       >
                         <FaUser className="cd-mr-2" /> Perfil
+                      </Link>
+                      <Link
+                        to="/stats"
+                        className={`cd-block cd-px-4 cd-py-2 cd-text-sm ${schema === 'dark' ? 'cd-text-white hover:cd-bg-zinc-600' : 'cd-text-gray-700 hover:cd-bg-gray-100'} cd-flex cd-items-center`}
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        <FaChartBar className="cd-mr-2" /> Estadísticas
                       </Link>
                       <button
                         onClick={() => {

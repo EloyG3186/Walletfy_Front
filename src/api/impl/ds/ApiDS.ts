@@ -51,122 +51,50 @@ class ApiDS extends DataDS {
   }
 
   /**
-   * Obtiene todos los eventos
+   * Carga los eventos desde la API
    */
-  async loadEvents(type?: string) {
+  async loadEvents(type?: 'income' | 'expense') {
     try {
-      // Solo incluir el parámetro de tipo si es 'income' o 'expense'
-      const queryParams = (type === 'income' || type === 'expense') ? 
-        `?type=${encodeURIComponent(type)}` : '';
-      
       // Verificar si hay token de autenticación
       const token = localStorage.getItem('token');
       if (!token) {
-        console.warn('ApiDS - No hay token de autenticación, no se pueden cargar eventos');
+        console.warn('ApiDS - No hay token de autenticación');
         return { events: [] };
       }
-      
-      console.log('ApiDS - Obteniendo eventos con token:', token.substring(0, 15) + '...');
-      
-      const data = await this.fetchApi(`/events${queryParams}`);
-      
-      console.log('ApiDS - Datos recibidos de la API:', data);
-      
-      // Asegurarse de que events sea un array
-      if (!data.events || !Array.isArray(data.events)) {
-        console.warn('ApiDS - No hay eventos en la API o formato incorrecto');
-        return { events: [] };
+
+      // Construir la URL con el filtro de tipo si se proporciona
+      let url = '/events';
+      if (type) {
+        url += `?type=${type}`;
       }
-      
-      console.log('ApiDS - Eventos del usuario:', data.events.length);
-      
-      // Transformar los eventos para que coincidan con el tipo EventType
-      const transformedEvents = data.events.map((event: any) => {
-        // Verificar que el evento tenga todos los campos necesarios
-        if (!event || typeof event !== 'object') {
-          console.error('ApiDS - Error: evento inválido:', event);
-          return null;
-        }
-        
-        // Registrar cada evento para depuración
-        console.log('ApiDS - Procesando evento:', {
-          id: event._id,
-          name: event.name,
-          type: event.type,
-          amount: event.amount
-        });
-        
-        return {
-          id: event._id || '',
-          name: event.name || '',
-          description: event.description || '',
-          date: typeof event.date === 'number' ? event.date : 0,
-          amount: typeof event.amount === 'number' ? event.amount : 0,
-          type: event.type === 'income' || event.type === 'expense' ? event.type : 'expense',
-          attachment: event.attachment || ''
-        };
-      }).filter(event => event !== null); // Filtrar eventos nulos
-      
-      console.log('ApiDS - Eventos transformados:', transformedEvents.length);
-      return { events: transformedEvents };
+
+      // Realizar la petición a la API
+      const response = await this.fetchApi(url, {
+        method: 'GET'
+      });
+
+      return response;
     } catch (error) {
-      console.error('ApiDS - Error al cargar eventos:', error);
-      return { events: [] };
+      console.error('Error al cargar eventos:', error);
+      
+      // Si hay un error de autenticación, devolver un array vacío
+      if (error instanceof Error && error.message.includes('No autorizado')) {
+        return { events: [] };
+      }
+      
+      throw error;
     }
   }
 
   /**
-   * Obtiene un evento por su ID
+   * Crea un nuevo evento
    */
-  async loadEventById(id: string) {
-    try {
-      const data = await this.fetchApi(`/events/${encodeURIComponent(id)}`);
-      console.log('ApiDS - Datos de evento recibidos de la API:', data);
-      
-      if (!data.event) {
-        console.log('ApiDS - No se encontró el evento con ID:', id);
-        return { event: undefined };
-      }
-      
-      // Si el evento es una cadena JSON, intentar parsearlo
-      let eventObj = data.event;
-      if (typeof data.event === 'string') {
-        try {
-          eventObj = JSON.parse(data.event);
-        } catch (error) {
-          console.error('ApiDS - Error al parsear evento:', error);
-          return { event: undefined };
-        }
-      }
-      
-      // Transformar el evento para que coincida con el tipo EventType
-      const transformedEvent = {
-        id: eventObj._id || '',
-        name: eventObj.name || '',
-        description: eventObj.description || '',
-        date: typeof eventObj.date === 'number' ? eventObj.date : 0,
-        amount: typeof eventObj.amount === 'number' ? eventObj.amount : 0,
-        type: eventObj.type === 'income' || eventObj.type === 'expense' ? eventObj.type : 'expense',
-        attachment: eventObj.attachment || ''
-      };
-      
-      console.log('ApiDS - Evento transformado:', transformedEvent);
-      return { event: transformedEvent };
-    } catch (error) {
-      console.error('ApiDS - Error al cargar evento por ID:', error);
-      return { event: undefined };
-    }
-  }
-
-  /**
-   * Guarda un nuevo evento
-   */
-  async saveEvent(event: EventCreateType) {
-    // Validar el tamaño de los datos antes de enviarlos
+  async createEvent(event: EventCreateType) {
+    // Convertir el evento a JSON
     const eventData = JSON.stringify(event);
-    const dataSizeInMB = new Blob([eventData]).size / (1024 * 1024);
     
-    console.log(`ApiDS - Tamaño de datos a enviar: ${dataSizeInMB.toFixed(2)}MB`);
+    // Calcular el tamaño aproximado de los datos en MB
+    const dataSizeInMB = new Blob([eventData]).size / (1024 * 1024);
     
     // Si el tamaño es mayor a 0.5MB, mostrar un error (límite más estricto)
     if (dataSizeInMB > 0.5) {
@@ -188,10 +116,12 @@ class ApiDS extends DataDS {
     }
     
     try {
-      await this.fetchApi('/events', {
+      const response = await this.fetchApi('/events', {
         method: 'POST',
         body: eventData
       });
+      
+      return response;
     } catch (error: any) {
       // Manejar específicamente el error de tamaño
       if (error.message && error.message.includes('request entity too large')) {
@@ -205,11 +135,11 @@ class ApiDS extends DataDS {
    * Actualiza un evento existente
    */
   async updateEvent(id: string, event: EventCreateType) {
-    // Validar el tamaño de los datos antes de enviarlos
+    // Convertir el evento a JSON
     const eventData = JSON.stringify(event);
-    const dataSizeInMB = new Blob([eventData]).size / (1024 * 1024);
     
-    console.log(`ApiDS - Tamaño de datos a enviar: ${dataSizeInMB.toFixed(2)}MB`);
+    // Calcular el tamaño aproximado de los datos en MB
+    const dataSizeInMB = new Blob([eventData]).size / (1024 * 1024);
     
     // Si el tamaño es mayor a 0.5MB, mostrar un error (límite más estricto)
     if (dataSizeInMB > 0.5) {
@@ -251,6 +181,14 @@ class ApiDS extends DataDS {
     return this.fetchApi(`/events/${id}`, {
       method: 'DELETE'
     });
+  }
+
+  /**
+   * Implementación de saveEvent para cumplir con la interfaz DataDS
+   * Este método simplemente llama a createEvent
+   */
+  async saveEvent(event: EventCreateType): Promise<void> {
+    return this.createEvent(event);
   }
   
   /**
@@ -405,6 +343,74 @@ class ApiDS extends DataDS {
     
     return mockEvents;
   }
+
+  /**
+   * Obtener estadísticas de gastos diarios
+   */
+  async fetchDailyStats(year: number, month: number) {
+    try {
+      const response = await this.fetchApi(`/stats/daily?year=${year}&month=${month}`, {
+        method: 'GET'
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error al obtener estadísticas diarias:', error);
+      return { success: false, stats: { labels: [], data: [], total: 0 } };
+    }
+  }
+
+  /**
+   * Obtener estadísticas de gastos semanales
+   */
+  async fetchWeeklyStats(year: number, month: number) {
+    try {
+      const response = await this.fetchApi(`/stats/weekly?year=${year}&month=${month}`, {
+        method: 'GET'
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error al obtener estadísticas semanales:', error);
+      return { success: false, stats: { labels: [], data: [], total: 0 } };
+    }
+  }
+
+  /**
+   * Obtener estadísticas de gastos por categoría
+   */
+  async fetchCategoryStats(year: number, month: number) {
+    try {
+      const response = await this.fetchApi(`/stats/category?year=${year}&month=${month}`, {
+        method: 'GET'
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error al obtener estadísticas por categoría:', error);
+      return { success: false, stats: { labels: [], data: [], total: 0 } };
+    }
+  }
+
+  /**
+   * Obtener períodos (años y meses) con transacciones
+   */
+  async fetchTransactionPeriods() {
+    try {
+      const response = await this.fetchApi('/stats/periods', {
+        method: 'GET'
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error al obtener períodos con transacciones:', error);
+      return { 
+        success: false, 
+        periods: [] 
+      };
+    }
+  }
 }
 
+export const apiDS = new ApiDS();
 export default ApiDS;

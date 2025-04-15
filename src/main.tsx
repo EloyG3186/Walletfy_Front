@@ -15,6 +15,7 @@ import Register from './pages/Register';
 import Profile from './pages/Profile';
 import AuthCallback from './pages/AuthCallback';
 import ProtectedRoute from './components/ProtectedRoute';
+import StatsPage from './pages/stats';
 
 
 const queryClient = new QueryClient({
@@ -62,6 +63,10 @@ const router = createBrowserRouter([
           {
             path: 'profile',
             element: <Profile />,
+          },
+          {
+            path: 'stats',
+            element: <StatsPage />,
           },
         ],
       },
