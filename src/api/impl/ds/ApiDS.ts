@@ -13,6 +13,7 @@ class ApiDS extends DataDS {
   /**
    * Método auxiliar para realizar peticiones HTTP
    */
+  /*
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
     try {
       const url = `${this.baseUrl}${endpoint}`;
@@ -49,6 +50,100 @@ class ApiDS extends DataDS {
       throw error;
     }
   }
+*/
+
+private async fetchApi(endpoint: string, options: RequestInit = {}) {
+  try {
+    // Comprobamos si estamos usando ngrok y ajustamos la URL base si es necesario
+    let baseUrl = this.baseUrl;
+    if (baseUrl.includes('ngrok-free.app')) {
+      // Si es un túnel ngrok, verificamos si es necesario usar una versión actualizada de la URL
+      const storedNgrokUrl = localStorage.getItem('ngrok_url');
+      if (storedNgrokUrl && storedNgrokUrl !== baseUrl) {
+        console.log(`Actualizando URL base de ngrok: ${baseUrl} -> ${storedNgrokUrl}`);
+        baseUrl = storedNgrokUrl;
+      }
+    }
+    
+    const url = `${baseUrl}${endpoint}`;
+    
+    // Obtener el token de autenticación del localStorage
+    const token = localStorage.getItem('token');
+    
+    // Preparar los headers con el token de autenticación si existe
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Accept': 'application/json; charset=utf-8',
+      // Para evitar la página de confirmación de ngrok en respuestas JSON
+      'ngrok-skip-browser-warning': 'true',
+      ...(options.headers as Record<string, string> || {})
+    };
+    
+    // Agregar el token de autenticación si existe
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    // Opciones de la petición
+    const fetchOptions = {
+      headers,
+      ...options
+    };
+    
+    // Para ngrok siempre usar credentials: 'omit' para evitar problemas
+    if (url.includes('ngrok-free.app')) {
+      fetchOptions.credentials = 'omit';
+    } else if (endpoint.includes('/users/login') || endpoint.includes('/users/register')) {
+      fetchOptions.credentials = 'include';
+    } else {
+      fetchOptions.credentials = 'same-origin';
+    }
+    
+    console.log(`Realizando petición a ${url} con opciones:`, fetchOptions);
+    const response = await fetch(url, fetchOptions);
+
+    // Manejar respuestas sin contenido (204 No Content)
+    if (response.status === 204) {
+      return {}; // Devolver objeto vacío
+    }
+
+    // Primero obtener el texto y luego intentar parsearlo como JSON
+    const text = await response.text();
+    let data;
+    
+    try {
+      // Solo intentar analizar como JSON si hay contenido
+      data = text ? JSON.parse(text) : {};
+    } catch (parseError) {
+      console.error('Error al analizar la respuesta JSON:', parseError);
+      console.log('Respuesta recibida:', text);
+      throw new Error('La respuesta del servidor no es un JSON válido');
+    }
+
+    if (!response.ok) {
+      console.log("Respuesta completa del servidor:", data);
+      
+      // Construir un mensaje de error más completo que incluya los errores detallados
+      let errorMessage = data.message || `Error en la petición: ${response.status}`;
+      
+      // Si hay errores detallados, añadirlos al mensaje
+      if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+        errorMessage += ': ' + data.errors.join(', ');
+      } else if (data.error) {
+        // Algunos endpoints pueden devolver el error en 'error' en lugar de 'errors'
+        errorMessage += ': ' + data.error;
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error en la petición:', error);
+    throw error;
+  }
+}
+
 
   /**
    * Carga los eventos desde la API
@@ -90,6 +185,36 @@ class ApiDS extends DataDS {
    * Crea un nuevo evento
    */
   async createEvent(event: EventCreateType) {
+    // Verificar que todos los campos requeridos estén presentes
+    const requiredFields = ['name', 'description', 'date', 'amount', 'type'];
+    const missingFields = requiredFields.filter(field => {
+      return event[field as keyof EventCreateType] === undefined || event[field as keyof EventCreateType] === null;
+    });
+    
+    if (missingFields.length > 0) {
+      console.error(`Campos obligatorios faltantes: ${missingFields.join(', ')}`);
+      throw new Error(`Falta información requerida: ${missingFields.join(', ')}`);
+    }
+    
+    // Verificar que los campos tengan el formato correcto
+    if (typeof event.date !== 'number') {
+      console.error('El campo date debe ser un número (timestamp)', event.date);
+      event.date = Number(event.date) || Math.floor(Date.now() / 1000);
+    }
+    
+    if (typeof event.amount !== 'number') {
+      console.error('El campo amount debe ser un número', event.amount);
+      event.amount = Number(event.amount) || 0;
+    }
+    
+    if (event.type !== 'income' && event.type !== 'expense') {
+      console.error('El campo type debe ser "income" o "expense"', event.type);
+      throw new Error('El tipo debe ser "income" o "expense"');
+    }
+    
+    // Log de diagnóstico
+    console.log("Evento a crear:", JSON.stringify(event, null, 2));
+    
     // Convertir el evento a JSON
     const eventData = JSON.stringify(event);
     
@@ -127,6 +252,30 @@ class ApiDS extends DataDS {
       if (error.message && error.message.includes('request entity too large')) {
         throw new Error('El archivo adjunto es demasiado grande. Por favor, use una imagen más pequeña o de menor resolución.');
       }
+      throw error;
+    }
+  }
+
+  /**
+   * Carga un evento específico por su ID
+   */
+  async loadEventById(id: string) {
+    try {
+      // Verificar si hay token de autenticación
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.warn('ApiDS - No hay token de autenticación');
+        throw new Error('No hay token de autenticación');
+      }
+
+      // Realizar la petición a la API
+      const response = await this.fetchApi(`/events/${id}`, {
+        method: 'GET'
+      });
+
+      return response;
+    } catch (error) {
+      console.error('Error al cargar evento por ID:', error);
       throw error;
     }
   }

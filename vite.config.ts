@@ -33,4 +33,13 @@ export default defineConfig({
   },
 
   //base: 'https://EloyG3186.github.io/Walletfy_Project'
+
+  server: {
+    // Configuración para ngrok
+    allowedHosts: [
+      '28b1-2800-bf0-8047-1463-8d3d-565e-ef62-6558.ngrok-free.app'
+    ]
+  }
+
+
 })
